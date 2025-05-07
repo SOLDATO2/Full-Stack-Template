@@ -1,13 +1,14 @@
 use std::{fs, net::SocketAddr};
 
-use axum::{
-    response::{Html, IntoResponse},
-    routing::{get, get_service},
-    Json, Router,
+use actix_files::Files;
+use actix_web::{
+    get, post,
+    web::{self, Json},
+    App, HttpResponse, HttpServer, Responder, middleware::Logger, http::header,
 };
-use http::StatusCode;
-use serde::Serialize;
-use tower_http::services::ServeDir;
+use serde::{Deserialize, Serialize};
+
+// ——— Models ———
 
 #[derive(Serialize)]
 struct Usuario {
@@ -15,47 +16,83 @@ struct Usuario {
     nome: String,
 }
 
-// Rota API que retorna JSON puro
-async fn listar_json() -> Json<Vec<Usuario>> {
+#[derive(Serialize)]
+struct LoginResponse {
+    success: bool,
+}
+
+#[derive(Deserialize)]
+struct LoginPayload {
+    username: String,
+    password: String,
+}
+
+// ——— Handlers ———
+
+async fn serve_spa() -> impl Responder {
+    let html =
+        fs::read_to_string("static/dist/index.html").expect("static/dist/index.html não encontrado");
+    HttpResponse::Ok()
+        .insert_header((header::CONTENT_TYPE, "text/html; charset=utf-8"))
+        .body(html)
+}
+
+/// GET /json-data → devolve JSON de Usuários
+#[get("/json-data")]
+async fn listar_json() -> impl Responder {
     let usuarios = vec![
         Usuario { id: 1, nome: "Cleber".into() },
         Usuario { id: 2, nome: "Ana".into() },
     ];
-    Json(usuarios)
-}
-
-async fn index_html() -> Html<String> {
-
-    let html = fs::read_to_string("static/dist/index.html")
-        .expect("static/dist/index.html não encontrado");
-    Html(html)
+    HttpResponse::Ok().json(usuarios)
 }
 
 
-async fn not_found(uri: axum::http::Uri) -> impl IntoResponse {
-    (StatusCode::NOT_FOUND, format!("Rota não encontrada: {}", uri))
+#[post("/login")]
+async fn login(payload: Json<LoginPayload>) -> impl Responder {
+    let ok = payload.username == "admin" && payload.password == "123";
+    let resp = LoginResponse { success: ok };
+    if ok {
+        HttpResponse::Ok().json(resp)
+    } else {
+        HttpResponse::Unauthorized().json(resp)
+    }
 }
 
-#[tokio::main]
-async fn main() {
-    let static_files = get_service(ServeDir::new("static/dist"));
 
-    let app = Router::new()
+async fn not_found() -> impl Responder {
+    HttpResponse::NotFound().body("404 Not Found")
+}
 
-        .route("/", get(index_html))
-        .route("/json", get(index_html))
-        .route("/json-data", get(listar_json))
+#[actix_web::main]
+async fn main() -> std::io::Result<()> {
 
-        
-        .nest_service("/static", static_files)
-        .fallback(not_found);
+    env_logger::init();
 
-
+    // Endereço de bind
     let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
     println!("🚀 Servindo em http://{}", addr);
-    let listener = tokio::net::TcpListener::bind(addr)
-        .await
-        .unwrap();
 
-    axum::serve(listener, app).await.unwrap();
+    HttpServer::new(move || {
+        App::new()
+            .wrap(Logger::default())
+            // SPA: "/" , "/json" e "/login" servem o mesmo index.html
+            .route("/",    web::get().to(serve_spa))
+            .route("/json", web::get().to(serve_spa))
+            .route("/login", web::get().to(serve_spa))
+            // API JSON
+            .service(listar_json)
+            .service(login)
+            // assets estáticos
+            .service(
+                Files::new("/static", "static/dist")
+                    .use_last_modified(true)
+                    .disable_content_disposition()
+            )
+            // fallback 404
+            .default_service(web::route().to(not_found))
+    })
+    .bind(addr)?
+    .run()
+    .await
 }

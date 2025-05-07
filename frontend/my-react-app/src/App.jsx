@@ -1,6 +1,8 @@
 import { Routes, Route, Link } from 'react-router-dom'
-import Home     from './Home'
-import JsonPage from './JsonPage'
+import Home      from './Home'
+import JsonPage  from './JsonPage'
+import Login     from './Login'
+import ProtectedRoute from './ProtectedRoute'
 import './App.css'
 
 export default function App() {
@@ -9,12 +11,33 @@ export default function App() {
       <nav>
         <Link to="/">Home</Link> |{' '}
         <Link to="/json">Json</Link>
+        {/* removemos o <Link to="/login"> */}
       </nav>
 
       <Routes>
-        <Route path="/"      element={<Home     />} />
-        <Route path="/json"  element={<JsonPage />} />
-        <Route path="*"      element={<h2>404: Não encontrado</h2>} />
+        {/* Rota pública de login */}
+        <Route path="/login" element={<Login />} />
+
+        {/* Rotas protegidas */}
+        <Route
+          path="/"
+          element={
+            <ProtectedRoute>
+              <Home />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/json"
+          element={
+            <ProtectedRoute>
+              <JsonPage />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* 404 */}
+        <Route path="*" element={<h2>404: Não encontrado</h2>} />
       </Routes>
     </>
   )
